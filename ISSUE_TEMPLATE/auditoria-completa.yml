@@ -1,0 +1,39 @@
+name: "📊 Auditoría Completa de Greenwashing"
+description: "Solicitar una auditoría completa y personalizada"
+title: "[Auditoría] "
+labels: ["auditoría", "greenwashing"]
+body:
+  - type: input
+    id: website_url
+    attributes:
+      label: "URL del sitio web"
+      description: "URL completa a auditar"
+      placeholder: "https://ejemplo.com"
+    validations:
+      required: true
+      
+  - type: textarea
+    id: contexto
+    attributes:
+      label: "Contexto adicional"
+      description: "Información relevante sobre la empresa/producto"
+      placeholder: "Sector, productos principales, declaraciones de sostenibilidad actuales..."
+      
+  - type: textarea
+    id: preocupaciones
+    attributes:
+      label: "Preocupaciones específicas"
+      description: "¿Hay áreas específicas que te preocupan?"
+      placeholder: "Declaraciones de carbono, certificaciones, comunicaciones de marketing..."
+      
+  - type: checkboxes
+    id: areas
+    attributes:
+      label: "Áreas a analizar"
+      options:
+        - label: "Comunicaciones de marketing"
+        - label: "Certificaciones y sellos"
+        - label: "Declaraciones ambientales"
+        - label: "Informes de sostenibilidad"
+        - label: "Cadena de suministro"
+        - label: "Cumplimiento legal"
