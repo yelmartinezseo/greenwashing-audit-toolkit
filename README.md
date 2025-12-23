@@ -1,32 +1,35 @@
-# Greenwashing Audit Toolkit
+# 🍃 Greenwashing Audit Toolkit
 
 ![Version](https://img.shields.io/badge/version-3.1-blue)
 ![License](https://img.shields.io/badge/license-GPL--3.0-green)
 ![WordPress](https://img.shields.io/badge/WordPress-Plugin-blue)
 
-Herramienta completa de auditoría de greenwashing para WordPress que analiza sitios web en busca de prácticas engañosas de marketing ambiental.
+Herramienta completa de auditoría de greenwashing para WordPress. Analiza sitios web en busca de prácticas engañosas de marketing ambiental y devuelve puntuación + incumplimientos.
 
-## ✨ Características
+## ✨ Características Principales
 
-- **Análisis automático** de URLs en tiempo real
-- **Puntuación 0-100** con código de colores
-- **Detección de 6 categorías** de greenwashing
-- **Listado de incumplimientos** específicos
-- **Recomendaciones** personalizadas
-- **Integración con GitHub** Issues
+- **🔍 Análisis automático** de URLs en tiempo real
+- **📊 Puntuación 0-100** con código de colores
+- **📋 Detección de 6 categorías** de greenwashing
+- **⚠️ Listado de incumplimientos** específicos
+- **💡 Recomendaciones** personalizadas
+- **🔗 Integración con GitHub** Issues
 
-## 📦 Instalación
+## 🚀 Instalación Rápida
 
-1. Descarga el plugin desde [Releases](../../releases)
-2. Sube a `/wp-content/plugins/` de tu WordPress
-3. Activa el plugin desde el panel de administración
-4. Usa el shortcode `[greenwashing_audit]` en cualquier página
+### Opción 1: Desde WordPress
+1. **Descarga el plugin** desde [Releases](https://github.com/yelmartinezseo/greenwashing-audit-toolkit/releases/latest)
+2. **Ve a WordPress** → Plugins → Añadir nuevo → Subir plugin
+3. **Sube** el archivo ZIP descargado
+4. **Activa** el plugin
 
-## 🎯 Uso
+### Opción 2: Manual
+1. **Clona o descarga** este repositorio
+2. **Copia** la carpeta `wordpress-plugin/` a `/wp-content/plugins/`
+3. **Activa** "Greenwashing Audit Toolkit" desde Plugins
 
+## 🎯 Uso del Plugin
+
+### Paso 1: Insertar el shortcode
 ```php
-// Shortcode básico
 [greenwashing_audit]
-
-// Shortcode con parámetros (futuras versiones)
-[greenwashing_audit depth="medium" lang="es"]
