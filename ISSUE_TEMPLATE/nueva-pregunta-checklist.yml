@@ -1,0 +1,40 @@
+name: "📝 Nueva Pregunta para Checklist"
+description: "Proponer nueva pregunta para el checklist de auditoría"
+title: "[Checklist] "
+labels: ["checklist", "mejora"]
+body:
+  - type: textarea
+    id: pregunta
+    attributes:
+      label: "Nueva pregunta"
+      description: "La pregunta que propones añadir al checklist"
+      placeholder: "¿Se proporcionan datos específicos sobre la reducción de emisiones?"
+    validations:
+      required: true
+      
+  - type: textarea
+    id: justificacion
+    attributes:
+      label: "Justificación"
+      description: "¿Por qué esta pregunta es importante para detectar greenwashing?"
+      
+  - type: dropdown
+    id: categoria
+    attributes:
+      label: "Categoría"
+      options:
+        - "Terminología y lenguaje"
+        - "Certificaciones y sellos"
+        - "Métricas y datos"
+        - "Transparencia"
+        - "Cumplimiento legal"
+        - "Imágenes y comunicaciones visuales"
+    validations:
+      required: true
+      
+  - type: textarea
+    id: ejemplos
+    attributes:
+      label: "Ejemplos de cumplimiento/incumplimiento"
+      description: "Proporciona ejemplos concretos"
+      placeholder: "Cumplimiento: 'Redujimos emisiones en 25% desde 2020' / Incumplimiento: 'Somos una empresa verde'"
