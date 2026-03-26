@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Greenwashing Audit Toolkit – Auditor Activo
  * Description: Analiza URLs en busca de greenwashing y devuelve puntuación, incumplimientos y referencias normativas (UE y España)
- * Version:     4.1
+ * Version:     4.3
  * Author:      Yel Martinez
  * Author URI:  https://github.com/yelmartinezseo
  * Plugin URI:  https://github.com/yelmartinezseo/greenwashing-audit-toolkit
@@ -10,6 +10,8 @@
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: greenwashing-audit
  * Domain Path: /languages
+ * Requires at least: 5.8
+ * Requires PHP:  7.4
  */
 
 if (!defined('ABSPATH')) exit;
@@ -423,6 +425,16 @@ function ga_audit_tool($atts) {
 }
 
 // ============================================================
+// CONSTANTES DE PROTECCIÓN DE RECURSOS
+// ============================================================
+define('GA_MAX_PAGES_BASIC',  1);   // básico: solo la URL indicada
+define('GA_MAX_PAGES_MEDIUM', 5);   // medio: máx 5 páginas (antes 18+)
+define('GA_MAX_PAGES_DEEP',   8);   // profundo: máx 8 páginas (antes 30)
+define('GA_TIMEOUT_PER_URL',  8);   // segundos por petición HTTP
+define('GA_MAX_BODY_SIZE',    300000); // 300KB máx por página (~250KB texto)
+define('GA_GLOBAL_TIME_LIMIT', 25); // segundos totales de ejecución
+
+// ============================================================
 // AUDITORÍA PRINCIPAL
 // ============================================================
 
@@ -431,17 +443,34 @@ function ga_perform_audit($url, $depth = 'basic', $sector = 'general', $company_
         return '<div class="ga-error">❌ URL inválida. Introduce una URL completa (ej: https://ejemplo.com)</div>';
     }
 
+    // Límite de tiempo global para proteger el hosting
+    @set_time_limit(GA_GLOBAL_TIME_LIMIT + 5);
+    $ga_start_time = microtime(true);
+
     // Obtener páginas a analizar según profundidad
     $urls_to_analyze = ga_get_urls_to_analyze($url, $depth);
 
-    $combined_content     = '';
-    $combined_html        = '';
-    $pages_analyzed       = array();
-    $pages_failed         = array();
+    $combined_content = '';
+    $combined_html    = '';
+    $pages_analyzed   = array();
+    $pages_failed     = array();
+    $pages_skipped    = array(); // páginas omitidas por tiempo
+    $warned_large     = false;
 
     foreach ($urls_to_analyze as $target_url) {
+        // Abortar si se acerca el límite de tiempo global
+        if ((microtime(true) - $ga_start_time) > GA_GLOBAL_TIME_LIMIT) {
+            $pages_skipped[] = $target_url;
+            continue;
+        }
+
         $content = ga_fetch_url_content($target_url);
-        if ($content && !is_string($content) === false && strlen($content) > 100) {
+        if ($content && strlen($content) > 100) {
+            // Truncar respuestas muy grandes para proteger memoria
+            if (strlen($content) > GA_MAX_BODY_SIZE) {
+                $content = substr($content, 0, GA_MAX_BODY_SIZE);
+                $warned_large = true;
+            }
             $combined_html    .= $content;
             $combined_content .= wp_strip_all_tags($content) . ' ';
             $pages_analyzed[]  = $target_url;
@@ -457,7 +486,7 @@ function ga_perform_audit($url, $depth = 'basic', $sector = 'general', $company_
     $analysis = ga_analyze_content($combined_content, $combined_html, $url, $sector, $company_size, $pages_analyzed, $declared_certs, $site_type, $site_context);
     ga_save_audit($analysis, $sector, $company_size, $depth);
 
-    return ga_generate_results($analysis, $url, $pages_analyzed, $pages_failed, $sector, $company_size, $site_type);
+    return ga_generate_results($analysis, $url, $pages_analyzed, $pages_failed, $sector, $company_size, $site_type, $pages_skipped, $warned_large);
 }
 
 // ============================================================
@@ -470,33 +499,31 @@ function ga_get_urls_to_analyze($base_url, $depth) {
     $parsed = parse_url($base_url);
     $root   = $parsed['scheme'] . '://' . $parsed['host'];
 
-    // Rutas de páginas de sostenibilidad típicas
+    // Rutas de sostenibilidad más relevantes — reducidas para proteger recursos
     $sustainability_paths = array(
         '/sostenibilidad', '/sustainability', '/rsc', '/csr',
-        '/responsabilidad-social', '/medio-ambiente', '/environmental',
-        '/sobre-nosotros', '/about-us', '/about', '/quienes-somos',
-        '/politica-ambiental', '/environmental-policy',
+        '/sobre-nosotros', '/about', '/politica-ambiental', '/environmental-policy',
         '/informe-sostenibilidad', '/sustainability-report',
-        '/compromiso', '/commitment',
     );
 
     if ($depth === 'medium' || $depth === 'deep') {
         foreach ($sustainability_paths as $path) {
             $urls[] = rtrim($root, '/') . $path;
+            if (count($urls) >= GA_MAX_PAGES_MEDIUM) break;
         }
     }
 
     if ($depth === 'deep') {
-        // Intentar extraer enlaces internos de la página principal
+        // Extraer solo los enlaces internos más relevantes de la página principal
         $main_content = ga_fetch_url_content($base_url);
         if ($main_content) {
             preg_match_all('/<a[^>]+href=["\']([^"\']+)["\'][^>]*>/i', $main_content, $matches);
             $internal_links = array();
             foreach ($matches[1] as $link) {
+                if (count($urls) >= GA_MAX_PAGES_DEEP) break;
                 if (strpos($link, $root) === 0 || (strpos($link, '/') === 0 && strpos($link, '//') !== 0)) {
                     $full_link = (strpos($link, '/') === 0) ? $root . $link : $link;
-                    // Filtrar solo enlaces con keywords relevantes
-                    $relevant = array('eco', 'green', 'sostenib', 'sustain', 'ambiente', 'carbon', 'impact', 'rsc', 'csr', 'certif', 'report', 'annual');
+                    $relevant  = array('sostenib', 'sustain', 'ambiente', 'carbon', 'impact', 'rsc', 'csr', 'certif', 'report');
                     foreach ($relevant as $kw) {
                         if (stripos($full_link, $kw) !== false) {
                             $internal_links[] = $full_link;
@@ -505,11 +532,14 @@ function ga_get_urls_to_analyze($base_url, $depth) {
                     }
                 }
             }
-            $urls = array_merge($urls, array_unique(array_slice($internal_links, 0, 10)));
+            $remaining = GA_MAX_PAGES_DEEP - count($urls);
+            if ($remaining > 0) {
+                $urls = array_merge($urls, array_unique(array_slice($internal_links, 0, $remaining)));
+            }
         }
     }
 
-    return array_unique(array_slice($urls, 0, 30));
+    return array_unique(array_slice($urls, 0, GA_MAX_PAGES_DEEP));
 }
 
 // ============================================================
@@ -517,21 +547,21 @@ function ga_get_urls_to_analyze($base_url, $depth) {
 // ============================================================
 
 function ga_fetch_url_content($url) {
-    $response = wp_remote_get($url, array(
-        'timeout'    => 20,
-        'user-agent' => 'Mozilla/5.0 (compatible; GreenwashingAuditBot/4.0; +https://github.com/yelmartinezseo)',
-        'sslverify'  => true,
-        'redirection'=> 3,
-    ));
+    $args = array(
+        'timeout'     => GA_TIMEOUT_PER_URL,
+        'user-agent'  => 'Mozilla/5.0 (compatible; GreenwashingAuditBot/4.3; +https://github.com/yelmartinezseo/greenwashing-audit-toolkit)',
+        'sslverify'   => true,
+        'redirection' => 2,
+        'limit_response_size' => GA_MAX_BODY_SIZE,
+    );
+
+    $response = wp_remote_get($url, $args);
 
     if (is_wp_error($response)) {
-        // Reintentar sin SSL verify si falla (solo para testing)
-        $response = wp_remote_get($url, array(
-            'timeout'    => 15,
-            'user-agent' => 'Mozilla/5.0 (compatible; GreenwashingAuditBot/4.0)',
-            'sslverify'  => false,
-            'redirection'=> 3,
-        ));
+        // Reintentar una sola vez sin SSL verify
+        $args['sslverify'] = false;
+        $args['timeout']   = GA_TIMEOUT_PER_URL - 2;
+        $response = wp_remote_get($url, $args);
         if (is_wp_error($response)) return false;
     }
 
@@ -1057,10 +1087,73 @@ function ga_render_historico() {
 }
 
 // ============================================================
+// ECOSISTEMA ESG — MAPA DE HERRAMIENTAS Y CTAs
+// ============================================================
+
+function ga_get_ecosystem_tools() {
+    return array(
+        'diagnostico' => array(
+            'name'  => 'Diagnóstico ESG para PYMEs',
+            'emoji' => '🔎',
+            'url'   => 'https://yel-martinez-portfolio.com/herramienta-de-diagnostico-esg-para-pymes/',
+            'desc'  => 'Evalúa el nivel ESG de tu empresa y detecta áreas de mejora.',
+            'params'=> array('sector', 'size'),
+        ),
+        'informe_asg' => array(
+            'name'  => 'Generador de Informe ASG/ESG',
+            'emoji' => '📄',
+            'url'   => 'https://yel-martinez-portfolio.com/generador-de-informe-asg-esg-para-pymes/',
+            'desc'  => 'Genera un informe ASG/ESG estructurado listo para comunicar.',
+            'params'=> array('sector', 'size', 'source_url'),
+        ),
+        'memoria_gri' => array(
+            'name'  => 'Generador de Memoria GRI',
+            'emoji' => '📊',
+            'url'   => 'https://yel-martinez-portfolio.com/generador-de-memoria-de-sostenibilidad-gri/',
+            'desc'  => 'Crea tu memoria de sostenibilidad alineada con los estándares GRI.',
+            'params'=> array('sector', 'size', 'source_url'),
+        ),
+        'sir' => array(
+            'name'  => 'Autoevaluación SIR',
+            'emoji' => '✅',
+            'url'   => 'https://yel-martinez-portfolio.com/herramienta-de-autoevaluacion-para-registro-sir-entidades-socialmente-responsables/',
+            'desc'  => 'Prepara tu candidatura al Registro de Entidades Socialmente Responsables.',
+            'params'=> array('sector', 'size'),
+        ),
+    );
+}
+
+// Qué herramienta recomienda cada tipo de incumplimiento
+function ga_get_issue_tool_map() {
+    return array(
+        'falta_politica_sostenibilidad' => array('diagnostico', 'informe_asg'),
+        'declaracion_carbono_sin_metricas' => array('memoria_gri', 'informe_asg'),
+        'certificacion_sin_detalles'    => array('diagnostico', 'sir'),
+        'termino_vago'                  => array('diagnostico'),
+        'lenguaje_absoluto'             => array('diagnostico', 'informe_asg'),
+        'sello_no_reconocido'           => array('diagnostico'),
+        'declaracion_biodegradable'     => array('memoria_gri'),
+        'sin_alcance_definido'          => array('memoria_gri', 'informe_asg'),
+        'obligacion_financiera'         => array('informe_asg', 'memoria_gri'),
+        'imagen_enganosa'               => array('diagnostico'),
+    );
+}
+
+// Construye URL con parámetros pre-rellenados
+function ga_build_tool_url($tool, $sector, $company_size, $source_url) {
+    $base = $tool['url'];
+    $params = array();
+    if (in_array('sector',     $tool['params'])) $params['sector']     = $sector;
+    if (in_array('size',       $tool['params'])) $params['size']       = $company_size;
+    if (in_array('source_url', $tool['params'])) $params['source_url'] = $source_url;
+    return $base . (empty($params) ? '' : '?' . http_build_query($params));
+}
+
+// ============================================================
 // GENERACIÓN DE RESULTADOS HTML
 // ============================================================
 
-function ga_generate_results($analysis, $url, $pages_analyzed, $pages_failed, $sector, $company_size, $site_type = 'corporativa') {
+function ga_generate_results($analysis, $url, $pages_analyzed, $pages_failed, $sector, $company_size, $site_type = 'corporativa', $pages_skipped = array(), $warned_large = false) {
     $score        = $analysis['score'];
     $issues       = $analysis['issues'];
     $total_issues = $analysis['total_issues'];
@@ -1087,6 +1180,19 @@ function ga_generate_results($analysis, $url, $pages_analyzed, $pages_failed, $s
         <div class="ga-legal-disclaimer">
             ⚠️ <strong>Aviso legal:</strong> Este análisis es orientativo y no constituye asesoramiento jurídico ni auditoría oficial. Los resultados deben ser validados por un profesional cualificado antes de tomar decisiones legales o comerciales.
         </div>
+
+        <?php if (!empty($pages_skipped) || $warned_large): ?>
+        <div class="ga-resource-warning">
+            ⏱️ <strong>Análisis limitado por recursos del servidor:</strong>
+            <?php if (!empty($pages_skipped)): ?>
+            <?php echo count($pages_skipped); ?> página(s) no analizadas por límite de tiempo.
+            <?php endif; ?>
+            <?php if ($warned_large): ?>
+            Algunas páginas se truncaron por ser demasiado grandes.
+            <?php endif; ?>
+            Para análisis más profundos en webs grandes, <a href="https://github.com/yelmartinezseo/greenwashing-audit-toolkit" target="_blank" rel="noopener">descarga el plugin y ejecútalo en tu propio entorno</a>.
+        </div>
+        <?php endif; ?>
 
         <!-- SCORE CARD -->
         <div class="ga-score-card <?php echo $class; ?>">
@@ -1125,9 +1231,12 @@ function ga_generate_results($analysis, $url, $pages_analyzed, $pages_failed, $s
             <p class="ga-issues-intro">Cada incumplimiento incluye la normativa específica que podría estar siendo vulnerada.</p>
 
             <?php foreach ($issues as $idx => $issue):
-                $norm_key  = $issue['type'];
-                $norm_data = $normativa[$norm_key] ?? null;
-                $sev_label = array('high' => 'ALTO', 'medium' => 'MEDIO', 'low' => 'BAJO');
+                $norm_key   = $issue['type'];
+                $norm_data  = $normativa[$norm_key] ?? null;
+                $sev_label  = array('high' => 'ALTO', 'medium' => 'MEDIO', 'low' => 'BAJO');
+                $issue_tools = ga_get_issue_tool_map();
+                $eco_tools   = ga_get_ecosystem_tools();
+                $recommended = $issue_tools[$norm_key] ?? array();
             ?>
             <div class="ga-issue ga-issue-<?php echo esc_attr($issue['severity']); ?>" data-penalty="<?php echo intval($issue['penalty']); ?>" data-issue-id="<?php echo $idx; ?>">
                 <div class="ga-issue-header">
@@ -1160,6 +1269,23 @@ function ga_generate_results($analysis, $url, $pages_analyzed, $pages_failed, $s
                         <li><?php echo esc_html($norma); ?></li>
                         <?php endforeach; ?>
                     </ul>
+                </div>
+                <?php endif; ?>
+
+                <?php if (!empty($recommended)): ?>
+                <div class="ga-issue-cta">
+                    <span class="ga-issue-cta-label">🛠️ Herramienta recomendada:</span>
+                    <?php foreach ($recommended as $tool_key):
+                        if (!isset($eco_tools[$tool_key])) continue;
+                        $t = $eco_tools[$tool_key];
+                        $tool_url = ga_build_tool_url($t, $sector, $company_size, $url);
+                    ?>
+                    <a href="<?php echo esc_url($tool_url); ?>"
+                       target="_blank" rel="noopener"
+                       class="ga-issue-cta-link">
+                        <?php echo $t['emoji']; ?> <?php echo esc_html($t['name']); ?> →
+                    </a>
+                    <?php endforeach; ?>
                 </div>
                 <?php endif; ?>
             </div>
@@ -1218,6 +1344,51 @@ function ga_generate_results($analysis, $url, $pages_analyzed, $pages_failed, $s
         <div class="ga-audit-note">
             <strong>Nota técnica:</strong> El análisis examina el contenido HTML público de las páginas accesibles. No accede a PDFs, imágenes con texto o contenido detrás de login. Para una auditoría completa de comunicación de sostenibilidad, consulte con un profesional ESG.
         </div>
+
+        <!-- PANEL ECOSISTEMA ESG -->
+        <?php
+        $eco_tools   = ga_get_ecosystem_tools();
+        $issue_tools = ga_get_issue_tool_map();
+
+        // Calcular relevancia de cada herramienta según los issues detectados
+        $tool_relevance = array('diagnostico' => 0, 'informe_asg' => 0, 'memoria_gri' => 0, 'sir' => 0);
+        foreach ($issues as $iss) {
+            $recommended = $issue_tools[$iss['type']] ?? array();
+            foreach ($recommended as $tk) {
+                if (isset($tool_relevance[$tk])) $tool_relevance[$tk] += $iss['penalty'];
+            }
+        }
+        arsort($tool_relevance);
+        ?>
+        <div class="ga-ecosystem-panel">
+            <div class="ga-ecosystem-header">
+                <h4>🧭 Próximos pasos con el ecosistema ESG</h4>
+                <p>Basado en los incumplimientos detectados, estas herramientas te ayudarán a resolverlos. Los parámetros de tu auditoría se pasan automáticamente.</p>
+            </div>
+            <div class="ga-ecosystem-grid">
+                <?php foreach ($tool_relevance as $tool_key => $relevance):
+                    if (!isset($eco_tools[$tool_key])) continue;
+                    $t        = $eco_tools[$tool_key];
+                    $tool_url = ga_build_tool_url($t, $sector, $company_size, $url);
+                    $is_top   = $relevance === max($tool_relevance) && $relevance > 0;
+                ?>
+                <a href="<?php echo esc_url($tool_url); ?>"
+                   target="_blank" rel="noopener"
+                   class="ga-eco-card<?php echo $is_top ? ' ga-eco-card-top' : ''; ?>">
+                    <?php if ($is_top): ?>
+                    <span class="ga-eco-badge-top">Más relevante</span>
+                    <?php endif; ?>
+                    <span class="ga-eco-emoji"><?php echo $t['emoji']; ?></span>
+                    <strong class="ga-eco-name"><?php echo esc_html($t['name']); ?></strong>
+                    <span class="ga-eco-desc"><?php echo esc_html($t['desc']); ?></span>
+                    <?php if ($relevance > 0): ?>
+                    <span class="ga-eco-relevance">Aborda <?php echo $relevance; ?> pts de riesgo detectados</span>
+                    <?php endif; ?>
+                    <span class="ga-eco-cta">Ir a la herramienta →</span>
+                </a>
+                <?php endforeach; ?>
+            </div>
+        </div><!-- .ga-ecosystem-panel -->
 
         <script>
         var ga_base_score = <?php echo intval($score); ?>;
@@ -1316,6 +1487,15 @@ function ga_enqueue_assets() {
 .ga-btn-primary:hover { background: #059669; transform: translateY(-1px); }
 .ga-disclaimer-form { font-size: 12px; color: #9ca3af; margin: 14px 0 0; }
 
+/* ---- RESOURCE WARNING ---- */
+.ga-resource-warning {
+    background: #fefce8; border: 1px solid #fde68a;
+    border-left: 4px solid #eab308; border-radius: 6px;
+    padding: 10px 14px; font-size: 13px; color: #713f12;
+    margin-bottom: 14px; line-height: 1.5;
+}
+.ga-resource-warning a { color: #92400e; font-weight: 600; }
+
 /* ---- CODE TAGS ---- */
 .ga-tool code, .ga-tool pre {
     background: #1e293b;
@@ -1335,6 +1515,66 @@ function ga_enqueue_assets() {
     white-space: pre;
     word-break: normal;
 }
+
+/* ---- ISSUE CTA ---- */
+.ga-issue-cta {
+    display: flex; align-items: center; flex-wrap: wrap;
+    gap: 8px; margin-top: 12px; padding-top: 10px;
+    border-top: 1px solid rgba(0,0,0,.06);
+}
+.ga-issue-cta-label { font-size: 12px; color: #6b7280; font-weight: 600; white-space: nowrap; }
+.ga-issue-cta-link {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+    background: #f0fdf4; color: #065f46; border: 1px solid #bbf7d0;
+    text-decoration: none; transition: all .2s; white-space: nowrap;
+}
+.ga-issue-cta-link:hover { background: #065f46; color: #fff; border-color: #065f46; text-decoration: none; }
+
+/* ---- ECOSYSTEM PANEL ---- */
+.ga-ecosystem-panel {
+    margin-top: 32px; border-radius: 14px; overflow: hidden;
+    border: 2px solid #d1fae5;
+    box-shadow: 0 4px 16px rgba(16,185,129,.1);
+}
+.ga-ecosystem-header {
+    background: linear-gradient(135deg, #064e3b, #065f46);
+    padding: 20px 24px;
+}
+.ga-ecosystem-header h4 { margin: 0 0 6px; font-size: 17px; color: #fff; }
+.ga-ecosystem-header p  { margin: 0; font-size: 13px; color: #a7f3d0; line-height: 1.5; }
+.ga-ecosystem-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr);
+    gap: 1px; background: #d1fae5;
+}
+.ga-eco-card {
+    display: flex; flex-direction: column; gap: 5px;
+    padding: 18px 20px; background: #fff;
+    text-decoration: none; transition: background .2s;
+    position: relative;
+}
+.ga-eco-card:hover { background: #f0fdf4; text-decoration: none; }
+.ga-eco-card-top { background: #f0fdf4; }
+.ga-eco-badge-top {
+    display: inline-block; align-self: flex-start;
+    background: #10b981; color: #fff;
+    font-size: 10px; font-weight: 700; letter-spacing: .5px;
+    padding: 2px 8px; border-radius: 10px; margin-bottom: 4px;
+    text-transform: uppercase;
+}
+.ga-eco-emoji { font-size: 24px; line-height: 1; }
+.ga-eco-name  { font-size: 14px; font-weight: 700; color: #064e3b; line-height: 1.3; }
+.ga-eco-desc  { font-size: 12px; color: #6b7280; line-height: 1.5; }
+.ga-eco-relevance {
+    font-size: 11px; color: #065f46; font-weight: 600;
+    background: #d1fae5; padding: 2px 8px; border-radius: 10px;
+    align-self: flex-start;
+}
+.ga-eco-cta {
+    font-size: 12px; font-weight: 700; color: #10b981;
+    margin-top: 4px;
+}
+.ga-eco-card:hover .ga-eco-cta { color: #064e3b; }
 
 /* ---- FALSE POSITIVE ---- */
 .ga-fp-btn {
@@ -1535,8 +1775,8 @@ function ga_enqueue_assets() {
     }
     .ga-meta-table td { display: block; padding: 0; font-size: 14px; }
 
-    /* issue header en móvil */
-    .ga-issue-header { gap: 6px; }
+    .ga-ecosystem-grid { grid-template-columns: 1fr; }
+    .ga-issue-cta { flex-direction: column; align-items: flex-start; }
     .ga-issue { padding: 14px 14px; }
     .ga-issue-normas ul { padding-left: 12px; }
 }
