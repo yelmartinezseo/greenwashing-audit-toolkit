@@ -1,0 +1,34 @@
+{
+  "title": "Auditoría de Greenwashing (Greenwashing Audit Toolkit)",
+  "upload_type": "software",
+  "description": "Plugin WordPress de auditoría de greenwashing: analiza sitios web en busca de prácticas engañosas de marketing ambiental, aplica la normativa europea y española vigente y devuelve una puntuación de 0 a 100 con incumplimientos detallados y referencias legales por categoría.",
+  "creators": [
+    {
+      "name": "Martínez, Yel",
+      "orcid": "0009-0003-0219-7265"
+    }
+  ],
+  "license": "gpl-3.0-or-later",
+  "keywords": [
+    "greenwashing",
+    "marketing ambiental",
+    "WordPress",
+    "normativa europea",
+    "ESG",
+    "Greentech"
+  ],
+  "language": "spa",
+  "related_identifiers": [
+    {
+      "identifier": "https://yel-martinez-portfolio.com/recursos/greenwashing-auditoria-gratis-y-plantilla-descargable/",
+      "relation": "isDocumentedBy",
+      "resource_type": "publication-other",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://github.com/yelmartinezseo/greenwashing-audit-toolkit",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    }
+  ]
+}
