@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "Si usas este software, cítalo con estos metadatos. El DOI apunta siempre a la versión más reciente."
+type: software
+title: "Auditoría de Greenwashing (Greenwashing Audit Toolkit)"
+abstract: "Herramienta detección greenwashing gratis + plantilla PDF descargable y repositorio GitHub para fork. Personalización por sector y tipo de negocio."
+authors:
+  - family-names: "Martínez"
+    given-names: "Yel"
+    alias: "yelmartinezseo"
+    affiliation: "Greentech"
+    website: "https://yel-martinez-portfolio.com"
+    orcid: "https://orcid.org/0009-0003-0219-7265"
+doi: "10.5281/zenodo.22770769"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.22770769"
+    description: "DOI de concepto en Zenodo (todas las versiones)"
+license: GPL-3.0-or-later
+repository-code: "https://github.com/yelmartinezseo/greenwashing-audit-toolkit"
+url: "https://yel-martinez-portfolio.com/recursos/greenwashing-auditoria-gratis-y-plantilla-descargable/"
+keywords:
+  - "greenwashing"
+  - "marketing ambiental"
+  - "normativa europea"
+  - "ESG"
+  - "Greentech"
+  - "open source"
